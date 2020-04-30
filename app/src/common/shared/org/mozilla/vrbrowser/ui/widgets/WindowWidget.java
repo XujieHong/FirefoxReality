@@ -94,6 +94,11 @@ public class WindowWidget extends UIWidget implements SessionChangeListener,
     public static final int SESSION_RELEASE_DISPLAY = 0;
     public static final int SESSION_DO_NOT_RELEASE_DISPLAY = 1;
 
+    @IntDef(value = { ACTIVATE, DEACTIVATE, DO_NOT_CHANGE})
+    public @interface SetSessionActiveState {}
+    public static final int ACTIVATE = 0;
+    public static final int DEACTIVATE = 1;
+    public static final int DO_NOT_CHANGE = 2;
 
     private Surface mSurface;
     private int mWidth;
@@ -1107,21 +1112,35 @@ public class WindowWidget extends UIWidget implements SessionChangeListener,
         }
     }
 
-    public void setSession(@NonNull Session aSession) {
-        setSession(aSession, SESSION_RELEASE_DISPLAY);
+    public void setSession(@NonNull Session aSession, @SetSessionActiveState int aSessionState) {
+        setSession(aSession, SESSION_RELEASE_DISPLAY, aSessionState);
     }
 
-    public void setSession(@NonNull Session aSession, @OldSessionDisplayAction int aDisplayAction) {
+    public void setSession(@NonNull Session aSession, @OldSessionDisplayAction int aDisplayAction, @SetSessionActiveState int aSessionState) {
         if (mSession != aSession) {
             Session oldSession = mSession;
             if (oldSession != null) {
                 cleanListeners(oldSession);
+                switch (aSessionState) {
+                    case ACTIVATE:
+                        mSession.setActive(true);
+                        break;
+                    case DEACTIVATE:
+                        mSession.setActive(false);
+                        break;
+                    case DO_NOT_CHANGE:
+                        break;
+                }
                 if (aDisplayAction == SESSION_RELEASE_DISPLAY) {
                     oldSession.releaseDisplay();
                 }
             }
 
             mSession = aSession;
+
+            setupListeners(mSession);
+            SessionStore.get().setActiveSession(mSession);
+
             mViewModel.setIsPrivateSession(mSession.isPrivateMode());
 
             if (oldSession != null) {
@@ -1161,9 +1180,7 @@ public class WindowWidget extends UIWidget implements SessionChangeListener,
         // e.g. tab opened via window.open()
         aSession.updateLastUse();
         Session current = mSession;
-        setupListeners(aSession);
-        setSession(aSession);
-        SessionStore.get().setActiveSession(aSession);
+        setSession(aSession, DEACTIVATE);
         current.captureBackgroundBitmap(getWindowWidth(), getWindowHeight()).thenAccept(aVoid -> current.setActive(false));
         mWidgetManager.getWindows().showTabAddedNotification();
 
@@ -1173,10 +1190,7 @@ public class WindowWidget extends UIWidget implements SessionChangeListener,
     @Override
     public void onUnstackSession(Session aSession, Session aParent) {
         if (mSession == aSession) {
-            aParent.setActive(true);
-            setupListeners(aParent);
-            setSession(aParent);
-            SessionStore.get().setActiveSession(aParent);
+            setSession(aParent, DEACTIVATE);
             SessionStore.get().destroySession(aSession);
         }
     }
